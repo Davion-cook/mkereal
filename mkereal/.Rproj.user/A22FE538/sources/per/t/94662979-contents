@@ -1,0 +1,169 @@
+library(scales)
+library(shiny)
+library(leaflet)
+library("dplyr")
+library("tidyverse")
+data <- read.csv("merged_dataset.csv")
+data<- data[data$PropType == 'Residential',]
+
+
+
+data <- data %>% mutate(Bdrms = as.integer(Bdrms))
+data <- data %>% mutate(Fbath = as.integer(Fbath))
+data <- data %>% mutate(Hbath = as.integer(Hbath))
+data <- data[complete.cases(data$Bdrms), ]
+data <- data[complete.cases(data$Fbath), ]
+data <- data[complete.cases(data$Hbath), ]
+
+data <- data[data$Bdrms >= 1 & data$Bdrms <= 10,]
+data <- data[data$Fbath >= 1 & data$Fbath <= 10,]
+data <- data[data$Hbath >= 1 & data$Hbath <= 3,]
+
+
+data_loc <- read.csv("merged_dataset.csv")
+data_loc <- data_loc[data_loc$PropType == 'Residential',]
+data_loc <- select(data_loc, Latitude, Longitude)
+
+# Print the filtered dataframe
+ui <- fluidPage(
+  tags$head(
+    tags$style(
+      HTML("
+        #mke_map {
+          border: 10px solid #ccc;
+        }
+         
+      ")
+    )
+  ),
+  titlePanel("Milwaukee Real Estate"),
+  sidebarLayout(
+    sidebarPanel(
+      # Input control to filter properties
+      selectInput(
+        inputId = "District",
+        label = "Select District",
+        choices = c("All", unique(sort(data$District))),
+        selected = "Residential"
+      ),
+      selectInput(
+        inputId = "Bdrms",
+        label = "Bedrooms",
+        choices = c("All", unique(sort(data$Bdrms)))      
+        ),
+      selectInput(
+        inputId = "Fbath",
+        label = "Full Bathrooms",
+        choices = c("All", unique(sort(data$Fbath)))      
+      ),
+      selectInput(
+        inputId = "Hbath",
+        label = "Half Bathrooms",
+        choices = c("All", unique(sort(data$Hbath)))      
+      ),
+      selectInput(inputId = "Price_range",
+                  label = "Price Range",
+                  choices = c("All", "Below 200,000", 
+                              "200,000 - 500,000", 
+                              "500,000 - 1,000,000", 
+                              "Above 1,000,000"),
+                  selected = "All"
+      )
+      
+    ),
+    mainPanel(
+      leafletOutput("mke_map")
+      )
+  )
+)
+
+
+
+server <- function(input, output, session) {
+  
+  data <- read.csv("merged_dataset.csv")
+  data<- data[data$PropType == 'Residential',]
+  
+  data <- data %>% mutate(Bdrms = as.integer(Bdrms))
+  data <- data %>% mutate(Fbath = as.integer(Fbath))
+  data <- data %>% mutate(Hbath = as.integer(Hbath))
+  
+  data <- data[complete.cases(data$Bdrms), ]
+  data <- data[complete.cases(data$Fbath), ]
+  data <- data[complete.cases(data$Hbath), ]
+  
+  data <- data[data$Bdrms >= 1 & data$Bdrms <= 10,]
+  data <- data[data$Fbath >= 1 & data$Fbath <= 10,]
+  data <- data[data$Hbath >= 1 & data$Hbath <= 3,]
+  
+  filteredData <- reactive({
+    data %>%
+      filter(
+        if (input$District != "All") District == input$District else 
+          TRUE,
+        if (input$Bdrms != "All") Bdrms == input$Bdrms else 
+          TRUE,
+        if (input$Fbath != "All") Fbath == input$Fbath else 
+          TRUE,
+        if (input$Hbath != "All") Hbath == input$Hbath else 
+          TRUE,
+        if (input$Price_range == "Below 200,000") Sale_price < 200000 
+        else
+          if (input$Price_range == "200,000 - 500,000") Sale_price >= 200000 & Sale_price <= 500000 
+        else
+            if (input$Price_range == "500,000 - 1,000,000") Sale_price >= 500000 & Sale_price <= 1000000 
+        else
+              if (input$Price_range == "Above 1,000,000") Sale_price > 1000000 
+        else
+                TRUE
+      )
+  })
+  
+  output$mke_map <- renderLeaflet({
+    leaflet() %>%
+      addTiles() %>%
+      setView(lng = -87.90956, lat = 43.03901, zoom = 10) %>%
+      clearMarkers() %>%
+      addCircleMarkers(
+        data = filteredData(),
+        lng = ~Longitude,
+        lat = ~Latitude,
+        color = "blue",
+        radius = 5,
+        fillOpacity = 0.8,popup = paste0(
+          "Address: ", data$Address,
+          "<br>Price: $", comma(data$Sale_price),
+          "<br>Bedrooms: ", data$Bdrms,
+          "<br>Bathrooms: ", data$Fbath + (.5)*(data$Hbath),
+          "<br>Style: ", data$Style,
+          "<br>Sold Date: ", data$Sale_date
+        )
+      )
+  })
+  
+  observe({
+    leafletProxy("mke_map") %>%
+      clearMarkers() %>%
+      addCircleMarkers(
+        data = filteredData(),
+        lng = ~Longitude,
+        lat = ~Latitude,
+        color = "blue",
+        radius = 5,
+        fillOpacity = 0.8,
+        popup = paste0(
+          "Address: ", data$Address,
+          "<br>Price: $", comma(data$Sale_price),
+          "<br>Bedrooms: ", data$Bdrms,
+          "<br>Bathrooms: ", data$Fbath + (.5)*(data$Hbath),
+          "<br>Style: ", data$Style,
+          "<br>Year built: ", data$Year_Built,
+          "<br>Sold Date: ", data$Sale_date
+          
+        )
+      )
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
